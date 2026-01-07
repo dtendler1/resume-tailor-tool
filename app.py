@@ -40,7 +40,7 @@ if st.button("Tailor My CV"):
     else:
         with st.spinner("Analyzing relevance and tailoring..."):
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.0-flash')
             
             cv_text = extract_text(cv_file)
             
