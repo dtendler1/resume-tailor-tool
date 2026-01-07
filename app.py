@@ -41,7 +41,7 @@ if st.button("Tailor My CV"):
     else:
         status_box = st.empty()
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         cv_text = extract_text(cv_file)
         
         prompt = f"ROLE: ATS Optimizer. CV: {cv_text} JD: {jd_text} TONE: {tone}. (Instructions: 75% retention, 40% relevance check, no bold keywords)."
