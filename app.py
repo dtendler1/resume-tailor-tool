@@ -2,7 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 import PyPDF2
 from docx import Document
-import io
+import time
+from google.api_core import exceptions
 
 # Setup Page
 st.set_page_config(page_title="Resume Tailor Pro", layout="wide")
@@ -13,7 +14,8 @@ with st.sidebar:
     st.header("Setup")
     api_key = st.text_input("Enter Gemini API Key", type="password")
     tone = st.selectbox("Select Tone", ["Professional/Corporate", "Modern/Startup", "Technical/Academic"])
-    
+    st.info("Note: If you hit a limit, the app will automatically wait and retry.")
+
 # 2. Main Interface
 col1, col2 = st.columns(2)
 
@@ -22,7 +24,6 @@ with col1:
     cv_file = st.file_uploader("Upload Original CV (PDF or DOCX)", type=["pdf", "docx"])
     jd_text = st.text_area("Paste Job Description (JD) here", height=300)
 
-# Helper function to extract text
 def extract_text(file):
     if file.type == "application/pdf":
         reader = PyPDF2.PdfReader(file)
@@ -31,44 +32,43 @@ def extract_text(file):
         doc = Document(file)
         return " ".join([p.text for p in doc.paragraphs])
 
-# 3. Processing Logic
+# 3. Processing Logic with Auto-Retry
 if st.button("Tailor My CV"):
     if not api_key:
         st.error("Please enter your API key in the sidebar!")
     elif not cv_file or not jd_text:
         st.warning("Please upload a CV and paste a JD.")
     else:
-        with st.spinner("Analyzing relevance and tailoring..."):
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            
-            cv_text = extract_text(cv_file)
-            
-            # The System Prompt we built
-            prompt = f"""
-            ROLE: Expert ATS Optimizer.
-            
-            TASK: Compare the CV and JD provided below. 
-            
-            CV: {cv_text}
-            JD: {jd_text}
-            
-            TONE: {tone}
+        status_box = st.empty()
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        cv_text = extract_text(cv_file)
+        
+        prompt = f"ROLE: ATS Optimizer. CV: {cv_text} JD: {jd_text} TONE: {tone}. (Instructions: 75% retention, 40% relevance check, no bold keywords)."
 
-            INSTRUCTIONS:
-            1. RELEVANCE AUDIT: If the CV is a <40% match for the JD, output ONLY: "⚠️ RELEVANCE ALERT: This JD is a significant mismatch."
-            2. If relevant, rewrite the CV.
-            3. Keep 75% of original phrasing.
-            4. Never invent experience.
-            5. Maintain original flow. No bold keywords.
-            """
-            
-            response = model.generate_content(prompt)
-            
-            with col2:
-                st.subheader("Optimized Result")
-                if "RELEVANCE ALERT" in response.text:
-                    st.warning(response.text)
-                else:
-                    st.success("CV Successfully Tailored!")
-                    st.text_area("Copy your new CV content:", value=response.text, height=600)
+        # --- RETRY LOGIC START ---
+        max_retries = 5
+        for i in range(max_retries):
+            try:
+                with st.spinner(f"Processing... (Attempt {i+1})"):
+                    response = model.generate_content(prompt)
+                
+                with col2:
+                    st.subheader("Optimized Result")
+                    if "RELEVANCE ALERT" in response.text:
+                        st.warning(response.text)
+                    else:
+                        st.success("CV Successfully Tailored!")
+                        st.text_area("Copy your new CV content:", value=response.text, height=600)
+                break # Exit the loop if successful
+
+            except exceptions.ResourceExhausted:
+                wait_time = (2 ** i) + 2 # Exponential backoff: 3s, 4s, 6s...
+                status_box.warning(f"Quota reached. Waiting {wait_time}s to retry...")
+                time.sleep(wait_time)
+                if i == max_retries - 1:
+                    st.error("Maximum retries reached. Please wait 1 minute and try again.")
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
+                break
+        # --- RETRY LOGIC END ---
